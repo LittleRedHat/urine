@@ -8,7 +8,6 @@ from collections import Counter
 import math
 from colormath.color_objects import LabColor
 from colormath.color_diff import delta_e_cie2000
-import pymeanshift as pms
 import random
 import sys
 reload(sys)
@@ -22,6 +21,7 @@ class Urine():
     
     def __init__(self,image):
         self.image = image
+        self.origin = np.copy(image)
         self.areaFilter = [450,10000]
         self.whRatio = [1.1,1.5]
         self.width2interval = 0.48649
@@ -39,14 +39,14 @@ class Urine():
         return cv2.LUT(image, table)
 
     def preprocess(self):
-        self.image = self.adjustGamma(self.image,1.75)
+        # self.image = self.adjustGamma(self.image,1.75)
         # cv2.imwrite('gamma.jpg',self.image)
         gray = cv2.cvtColor(self.image,cv2.COLOR_BGR2GRAY)
         gray = cv2.medianBlur(gray,5)
         # ret, thresh = cv2.threshold(gray,0,255,cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
         thresh = cv2.adaptiveThreshold(gray,255,cv2.ADAPTIVE_THRESH_MEAN_C,cv2.THRESH_BINARY,51,5)
         kernel = np.ones((3,3),np.uint8)
-        # cv2.dilate(thresh,kernel,iterations=1)
+        cv2.dilate(thresh,kernel,iterations=2)
         self.gray = gray
         self.thresh = thresh
 
@@ -63,9 +63,6 @@ class Urine():
 
         # cv2.imwrite('./hemo.jpg',thresh)
         
-
-
-
     def isAnchor(self,crop):
 
         width,height = crop.shape[1],crop.shape[0]
@@ -112,9 +109,6 @@ class Urine():
         return False
         # return flag
 
-    
-
-
     def regionExtractByIndex(self,index):
 
         intervals = self.intervals
@@ -151,7 +145,7 @@ class Urine():
 
 
 
-        ratio = (intervals - index) * rect_width + (intervals - index) * interval
+        ratio = (index) * rect_width + (index) * interval
 
 
         ratio = ratio * 1.0 / (widths * rect_width + intervals * interval)
@@ -222,30 +216,12 @@ class Urine():
        
         # rect_center = (left_point[0] * (1 - ratio) + right_point[0]* ratio , left_point[1] * (1 - ratio) + right_point[1] * ratio)
         
-
-
-
-
-
-    
-
     def judgeDirection():
        
         leftStat = self.leftStat
         rightStat = self.rightStat
         leftCenter = leftStat['center']
         rightCenter = rightStat['center']
-
-
-
-
-     
-
-
-        
-
-
-
 
     def getRectPoints(self,src,rect):
         angle = rect[2]
@@ -266,10 +242,15 @@ class Urine():
 
 
     def locate(self): 
+        # self.image = cv2.pyrMeanShiftFiltering(self.image,20,20)
+        self.image = cv2.cvtColor(self.image,cv2.COLOR_BGR2HSV)
+        self.image = cv2.pyrMeanShiftFiltering(self.image,10,10)
+        self.image = cv2.cvtColor(self.image,cv2.COLOR_HSV2BGR)
         self.preprocess()
+
         # cv2.imwrite('binary.jpg',self.thresh)
+
         _,contours,hierarchy = cv2.findContours(self.thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
-        # contours = np.array([c for c in contours if cv2.])
         bboxs = []
         anchors = []
         anchors_indexs = []
@@ -285,22 +266,14 @@ class Urine():
             if stat['wh_ratio'] > self.whRatio[1] or stat['wh_ratio'] < self.whRatio[0]:
                 continue
 
-            # # 过滤掉候选框的内框
-
-
-
-            # # choose location area
-            # # crop = self.getRectPoints(self.image,stat['rect'])
-            # # if self.isAnchor(crop):
-
+            ##过滤掉候选框的内框
             if hierarchy[0][index][3] in anchors_indexs:
                 continue
-            # # print stat['rect']
             anchors.append(cnt)
             anchors_indexs.append(index)
             centers_x.append(stat['center'][0])
-            # cv2.drawContours(self.image,[stat['box']],-1,(255,255,255),1)
-            # print anchors_indexs
+            cv2.drawContours(self.image,[stat['box']],-1,(255,255,255),1)
+            
 
         if len(anchors) < 2:
             return {'code':1001,'msg':'图片定位失败'}
@@ -320,97 +293,26 @@ class Urine():
         rightCenter = self.rightAnchorStat['center']
 
         distance = self.pointDistance(leftCenter,rightCenter)
-        print distance
+        
         rect_width = (self.leftAnchorStat['width'] + self.rightAnchorStat['width']) / 2.0
-        print rect_width
+       
 
         ratio = [abs(self.width2interval -  (distance / i - rect_width) / rect_width) for i in range(1,self.category)]
         self.intervals = ratio.index(min(ratio)) + 1
         
-
-            
-
-
-
         # cv2.drawContours(self.image,[self.leftAnchorStat['box']],-1,(255,255,255),1)
         # cv2.drawContours(self.image,[self.rightAnchorStat['box']],-1,(255,255,255),1)
 
-
-
-
-        # index = np.argmax(centers_x)
-        # self.anchor = anchors[index]
-        # self.anchorStat =  self.contourStat(self.anchor)
-
-        # supportIndex = -1
-        # supportDistance = 0
-
-        # distances = []
-
-        # for i,anchor in enumerate(anchors):
-        #     stat = self.contourStat(anchor)
-        #     distance = self.pointDistance(self.anchorStat['center'],stat['center'])
-        #     # font=cv2.FONT_HERSHEY_SIMPLEX
-        #     # cv2.putText(self.image,str(distance)+'',stat['center'], font,4,(255,255,255),2)
-        #     distances.append({'distance':distance,'anchor':anchor})
-        
-        # distances = sorted(distances,cmp=lambda x,y: int(x['distance'] - y['distance']))
-        # # for d in distances:
-        # #     print d['distance']
-
-
-        # #     stat = self.contourStat(anchor)
-        # # sorted(anchors,cmp=lambda x,y:cmp(x,y),key=lambda anchor:self.pointDistance(self.anchorStat['center'],self.contourStat(anchor)['center']))
-        # # print anchors
-        # # for i,anchor in enumerate(anchors):
-
-        # #     if i == index:
-        # #         continue
-            
-        # #     stat = self.contourStat(anchor)
-        # #     d = self.pointDistance(self.anchorStat['center'],stat['center'])
-        # #     if d > supportDistance:
-        # #         supportIndex = i
-        # #         supportDistance = d
-        
-
-        # self.supportAnchor = distances[-2]['anchor']
-        # self.supportStat = self.contourStat(self.supportAnchor)
-
-        # # cv2.drawContours(self.image,[self.supportStat['box']],-1,(255,255,255),1)
-
-
-        # # left_index =  np.argmin(centers_x)
-        # # right_index = np.argmax(centers_x)
-        # # self.left = anchors[left_index]
-        # # self.right = anchors[right_index]
-        # # self.leftStat = self.contourStat(self.left)
-        # # self.rightStat =  self.contourStat(self.right)
-
-
-
-
-        
-        # # cv2.imwrite('./binary.jpg',self.thresh)
-        # cv2.imwrite('./sss.jpg',self.image)
-        # # cv2.imwrite('./gray.jpg',self.gray)
-
-
-        # # locate check anchor
         anchors = []
-
         for i in range(self.category):
-            rect =  self.regionExtractByIndex(self.category - 1 - i)
+            rect =  self.regionExtractByIndex(i)
             box = cv2.boxPoints(rect)
             box = np.int0(box)
             anchors.append(rect)
-
-            
-            # cv2.drawContours(self.image,[box],-1,(0,0,255),1)
             
         self.anchors = anchors
-        # print self.anchors
         # cv2.imwrite('./sss.jpg',self.image)
+       
 
     
 
@@ -449,13 +351,6 @@ class Urine():
         
         return {'angle':angle,'rect':rect,'area':area,'center':center,'width':width,'height':height,'wh_ratio':wh_ratio,'box':box}
         
-        
-         
-
-
-    
-
-    
     def colorDistance(self,lab1,lab2):
         color1 = LabColor(lab_l=lab1[0] / 255.0,lab_a = lab1[1],lab_b=lab1[2])
         color2 = LabColor(lab_l=lab2[0] / 255.0 ,lab_a = lab2[1],lab_b=lab2[2])
@@ -476,13 +371,15 @@ class Urine():
         return (l_mean,a_mean,b_mean)
 
     def run(self):
-        self.locate()
+        r = self.locate()
+        if r and r.get('code') and r.get('code') != 200:
+            return r
         result = []
         for i,anchor in enumerate(self.anchors):
 
-            crop = self.getRectPoints(self.image,anchor)
+            crop = self.getRectPoints(self.origin,anchor)
 
-            cv2.imwrite('./rect-%d.jpg'%(i),crop)
+            # cv2.imwrite('./rect-%d.jpg'%(i),crop)
 
             color = self.colorCal(crop)
             
@@ -508,31 +405,9 @@ class Urine():
         return result
 
 def run():
-    original_image = cv2.imread('./sample7.jpg')
-    segment_image = cv2.pyrMeanShiftFiltering(original_image,10,10)
-    u = Urine(segment_image)
+    img = cv2.imread('./sample2.jpg')
+    u = Urine(img)
     print u.run()
-
-    cv2.imwrite('sss.jpg',u.image)
-
-    # cv2.imwrite('segment_before.jpg',segment_image)
-
-    # rows,cols = segment_image.shape[:2]
-    # mask = np.zeros((rows+2,cols+2),np.uint8)
-    # flags = 4 | cv2.FLOODFILL_FIXED_RANGE
-    # count = 0 
-    # for i in range(0,rows,rows / 20):
-    #     for j in range(0,cols,cols / 20):
-    #         a,b,c = random.randint(0,255),random.randint(0,255),random.randint(0,255)
-    #         if mask[i+1,j+1] == 0:
-    #             ret = cv2.floodFill(segment_image,mask,(j,i),(0,0,0),5,5,flags = flags)
-    #             cv2.circle(segment_image, (j,i), 2, (255, 255, 255), -1)
-                
-                
-    #             count += 1
-    # print np.max(mask)
-
-    # cv2.imwrite('./segment.jpg',segment_image)
     
     
 
